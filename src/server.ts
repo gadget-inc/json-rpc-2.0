@@ -21,6 +21,11 @@ export type JSONRPCMethod<ServerParams> = (
 
 export type ErrorDataGetter = (error: any) => any;
 
+export interface Logger {
+  info(message: string, ...others: any[]): void;
+  warn(message: string, ...others: any[]): void;
+}
+
 type NameToMethodDictionary<ServerParams> = {
   [name: string]: JSONRPCMethod<ServerParams>;
 };
@@ -38,10 +43,16 @@ export class JSONRPCServer<ServerParams = void> {
   private nameToMethodDictionary: NameToMethodDictionary<ServerParams>;
 
   getErrorData?: ErrorDataGetter;
+  logger: Logger | null;
 
-  constructor(options?: { getErrorData?: ErrorDataGetter }) {
+  constructor(options?: {
+    getErrorData?: ErrorDataGetter;
+    logger?: Logger | null;
+  }) {
     this.nameToMethodDictionary = {};
     this.getErrorData = options?.getErrorData;
+    this.logger =
+      typeof options?.logger !== "undefined" ? options?.logger : console;
   }
 
   addMethod(name: string, method: SimpleJSONRPCMethod<ServerParams>): void {
@@ -59,7 +70,7 @@ export class JSONRPCServer<ServerParams = void> {
         const result = await method(request.params, serverParams);
         return mapResultToJSONRPCResponse(request.id, result);
       } catch (error) {
-        console.warn(
+        this.logger?.warn(
           `JSON-RPC method ${request.method} responded an error`,
           error
         );
@@ -83,7 +94,7 @@ export class JSONRPCServer<ServerParams = void> {
 
     if (!isJSONRPCRequest(request)) {
       const message = "Received an invalid JSON-RPC request";
-      console.warn(message, request);
+      this.logger?.warn(message, request);
       throw new Error(message);
     } else if (method) {
       const response = await this.callMethod(method, request, serverParams);
@@ -103,7 +114,7 @@ export class JSONRPCServer<ServerParams = void> {
     try {
       return await method(request, serverParams);
     } catch (error) {
-      console.warn(
+      this.logger?.warn(
         `An unexpected error occurred while executing "${request.method}" JSON-RPC method:`,
         error
       );

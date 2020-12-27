@@ -234,6 +234,26 @@ client.request("fail").then(
 );
 ```
 
+### Logging
+
+`JSONRPCServer` logs warnings to the console by default when handlers fail. To configure a different logger, pass a `logger` option to the server constructor:
+
+
+```javascript
+const server = new JSONRPCServer({
+  logger: {
+    info: (message, ...otherObjects) => someLoggingLibrary.info(message),
+    warn: (message, ...otherObjects) => someLoggingLibrary.error(message),
+  }
+});
+```
+
+To disable logging, pass `null` as the logger option:
+
+```javascript
+const server = new JSONRPCServer({ logger: null });
+```
+
 ### Advanced APIs
 
 Use the advanced APIs to handle raw JSON-RPC messages.
