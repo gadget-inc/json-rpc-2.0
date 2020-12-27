@@ -1,6 +1,12 @@
 import { describe, beforeEach, it } from "mocha";
 import { expect } from "chai";
-import { JSONRPCClient, JSONRPCProtocol, JSONRPCRequest } from ".";
+import {
+  JSONRPCClient,
+  JSONRPCProtocol,
+  JSONRPCRemoteError,
+  JSONRPCRequest,
+} from ".";
+import { isJSONRPCRemoteError } from "./models";
 
 interface ClientContext {
   token: string;
@@ -111,6 +117,8 @@ describe("JSONRPCClient", () => {
           );
           expect(requestError.code).to.equal(0);
           expect(requestError.data.test).to.equal(true);
+          expect(requestError.isJSONRPCRemoteError).to.equal(true);
+          expect(isJSONRPCRemoteError(requestError)).to.equal(true);
         });
       });
 

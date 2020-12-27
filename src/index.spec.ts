@@ -1,6 +1,6 @@
 import "mocha";
 import { expect } from "chai";
-import { JSONRPCServer, JSONRPCClient } from ".";
+import { JSONRPCServer, JSONRPCClient, JSONRPCRemoteError } from ".";
 
 describe("JSONRPCClient and JSONRPCServer", () => {
   let server: JSONRPCServer;
@@ -30,6 +30,7 @@ describe("JSONRPCClient and JSONRPCServer", () => {
       await client.request("foo");
     } catch (error) {
       expect(error.message).to.equal("test error");
+      expect(error.isJSONRPCRemoteError).to.equal(true);
     }
   });
 

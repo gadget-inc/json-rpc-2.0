@@ -166,6 +166,9 @@ The `error` object thrown by the client will be a `JSONRPCRemoteError` object if
 
 - `code`, containing the JSON-RPC error code
 - `data`, which if set on the server will contain auxiliary data for the error. This is supported by the JSON-RPC spec, but isn't set automatically. Users of this library on the server ust use the server's `getErrorData` option to send `data` with errors.
+- `isJSONRPCRemoteError`, which is always `true`.
+
+There's also an `isJSONRPCRemoteError` function exported from this package for detecting these errors in a forward compatible (and TypeScript type assert-y) way.
 
 #### Server side error data
 

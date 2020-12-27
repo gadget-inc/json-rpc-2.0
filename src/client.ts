@@ -4,6 +4,7 @@ import {
   JSONRPCParams,
   JSONRPCRequest,
   JSONRPCResponse,
+  JSONRPCRemoteError,
 } from "./models";
 
 export type SendRequest<ClientContext> = (
@@ -12,17 +13,6 @@ export type SendRequest<ClientContext> = (
 ) => Promise<JSONRPCResponse>;
 
 export type CreateID = () => JSONRPCID;
-
-export class JSONRPCRemoteError extends Error {
-  constructor(
-    message: string,
-    readonly code: number,
-    readonly response?: JSONRPCResponse,
-    readonly data?: any
-  ) {
-    super(message);
-  }
-}
 
 export class JSONRPCClient<ClientContext = void> {
   private id: number;
@@ -72,7 +62,10 @@ export class JSONRPCClient<ClientContext = void> {
         response.error.data
       );
     } else {
-      throw new Error("An unexpected error occurred");
+      // this should never happen: we shouldn't get back a defined result with an error, or an undefined result and undefined error.
+      throw new Error(
+        "JSONRPCClient internal error: An unexpected error occurred, result/error response didn't make sense"
+      );
     }
   }
 

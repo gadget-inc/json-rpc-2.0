@@ -70,3 +70,22 @@ export const createJSONRPCErrorResponse = (
 
   return errorResponse;
 };
+
+export class JSONRPCRemoteError extends Error {
+  isJSONRPCRemoteError = true;
+
+  constructor(
+    message: string,
+    readonly code: number,
+    readonly response?: JSONRPCResponse,
+    readonly data?: any
+  ) {
+    super(message);
+  }
+}
+
+export const isJSONRPCRemoteError = (
+  error: any
+): error is JSONRPCRemoteError => {
+  return error && "isJSONRPCRemoteError" in error && error.isJSONRPCRemoteError;
+};
