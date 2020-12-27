@@ -203,6 +203,37 @@ client.request("fail").then(
 );
 ```
 
+The `error` object thrown by the client will be a `JSONRPCRemoteError` object if the server replies with a spec conforming JSON-RPC error response. If the server fails to reply with an appropriate response or any other internal error occurs, the error will be a plain old `Error` object.
+
+`JSONRPCRemoteError` are a subclass of the standard `Error` object, so they have a `message` like normal errors, and the message will come from the server side error. The stack of a `JSONRPCRemoteError` object will be the client side local stack. These custom error objects also have the following properties:
+
+ - `code`, containing the JSON-RPC error code
+ - `data`, which if set on the server will contain auxiliary data for the error. This is supported by the JSON-RPC spec, but isn't set automatically. Users of this library on the server ust use the server's `getErrorData` option to send `data` with errors.
+
+
+#### Server side error data
+
+The `JSONRPCServer` class can be configured to send custom `data` alongside error responses. Pass a `getErrorData` function in the constructor options to the server. The function is passed any `error`s thrown by handlers, and should reply with a JSON serializable object.
+
+```javascript
+// as an example, send the server side error's stack in the error data
+const server = new JSONRPCServer({
+  getErrorData: (error) => {
+    return {
+      customData: true,
+      errorStack: error.stack
+    }
+  }
+});
+
+// ...
+
+client.request("fail").then(
+  () => {},
+  (error) => console.error(error.data.stack) // Outputs the server side error's stack
+);
+```
+
 ### Advanced APIs
 
 Use the advanced APIs to handle raw JSON-RPC messages.
