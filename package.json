@@ -1,7 +1,7 @@
 {
-  "name": "json-rpc-2.0",
-  "version": "0.2.12",
-  "description": "JSON-RPC 2.0 client and server",
+  "name": "json-rpc-utils",
+  "version": "0.3.0",
+  "description": "JSON-RPC 2.0 client and server utilities",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -9,13 +9,13 @@
   ],
   "scripts": {
     "format": "pretty-quick || echo \"Failed to format. Continuing...\"",
-    "test": "npm run format && mocha --require ts-node/register \"./src/**/*.spec.ts\"",
+    "test": "mocha --require ts-node/register \"./src/**/*.spec.ts\"",
     "clean": "del \"dist\"",
     "build": "npm run format && npm run clean && tsc"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/shogowada/json-rpc-2.0.git"
+    "url": "git+https://github.com/gadget-inc/json-rpc-utils.git"
   },
   "keywords": [
     "json-rpc"
@@ -23,9 +23,9 @@
   "author": "Shogo Wada",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/shogowada/json-rpc-2.0/issues"
+    "url": "https://github.com/gadget-inc/json-rpc-utils/issues"
   },
-  "homepage": "https://github.com/shogowada/json-rpc-2.0#readme",
+  "homepage": "https://github.com/gadget-inc/json-rpc-utils#readme",
   "engines": {
     "node": ">=0.8"
   },

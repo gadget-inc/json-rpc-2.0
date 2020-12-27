@@ -1,19 +1,21 @@
-# json-rpc-2.0
+# json-rpc-utils
 
 Let your client and server talk over function calls under [JSON-RPC 2.0 spec](https://www.jsonrpc.org/specification).
 
-- Protocol agnostic
-  - Use over HTTP, WebSocket, TCP, UDP, inter-process, whatever else
-    - Easy migration from HTTP to WebSocket, for example
+This library is protocol agnostic, which is convienient if you're already using an `http` server like Express or Fastify, and you want to control how the request is passed off to this RPC system. If you want to re-use your authentication middleware, or your fancy JSON parser/serializer, or your tracing system, this is the library for you!
+
+Features:
+
+- Use over HTTP, WebSocket, TCP, UDP, inter-process, whatever else
+  - Easy migration from HTTP to WebSocket, for example
 - No external dependencies
   - Keep your package small
   - Stay away from dependency hell
-- First-class TypeScript support
-  - Written in TypeScript
+- First-class TypeScript support (written in TypeScript)
 
 ## Install
 
-`npm install --save json-rpc-2.0`
+`npm install --save json-rpc-utils`
 
 ## Example
 
@@ -24,32 +26,29 @@ The example uses HTTP for communication protocol, but it can be anything.
 ```javascript
 const express = require("express");
 const bodyParser = require("body-parser");
-const { JSONRPCServer } = require("json-rpc-2.0");
+const { JSONRPCServer } = require("json-rpc-utils");
 
 const server = new JSONRPCServer();
 
-// First parameter is a method name.
-// Second parameter is a method itself.
-// A method takes JSON-RPC params and returns a result.
-// It can also return a promise of the result.
+// Add methods, which have a name, and an implementation function.  The implementation function takes the JSON-RPC params and returns some kind of result or nothing at all. The implementation can be async too!
 server.addMethod("echo", ({ text }) => text);
 server.addMethod("log", ({ message }) => console.log(message));
 
 const app = express();
 app.use(bodyParser.json());
 
-app.post("/json-rpc", (req, res) => {
+app.post("/json-rpc", async (req, res) => {
   const jsonRPCRequest = req.body;
-  // server.receive takes a JSON-RPC request and returns a promise of a JSON-RPC response.
-  server.receive(jsonRPCRequest).then((jsonRPCResponse) => {
-    if (jsonRPCResponse) {
-      res.json(jsonRPCResponse);
-    } else {
-      // If response is absent, it was a JSON-RPC notification method.
-      // Respond with no content status (204).
-      res.sendStatus(204);
-    }
-  });
+  // server.process takes a JSON-RPC request and returns a promise of a JSON-RPC response.
+  const jsonRPCResponse = await server.process(jsonRPCRequest);
+
+  // If response is absent, it was a JSON-RPC notification method (where no response is expected).
+  // Respond with no content status (204).
+  if (jsonRPCResponse) {
+    res.json(jsonRPCResponse);
+  } else {
+    res.sendStatus(204);
+  }
 });
 
 app.listen(80);
@@ -62,26 +61,23 @@ To hook authentication into the API, inject custom params:
 ```javascript
 const server = new JSONRPCServer();
 
-// If the method is a higher-order function (a function that returns a function),
-// it will pass the custom parameter to the returned function.
-// Use this to inject whatever information that method needs outside the regular JSON-RPC request.
-server.addMethod("echo", ({ text }) => ({ userID }) =>
-  `${userID} said ${text}`
+// Use the second context argument to inject whatever information that method needs outside the regular JSON-RPC request.
+server.addMethod(
+  "echo",
+  (params, context) => `${context.userID} said ${params.text}`
 );
 
-app.post("/json-rpc", (req, res) => {
+app.post("/json-rpc", async (req, res) => {
   const jsonRPCRequest = req.body;
   const userID = getUserID(req);
 
-  // server.receive takes an optional second parameter.
-  // The parameter will be injected to the JSON-RPC method if it was a higher-order function.
-  server.receive(jsonRPCRequest, { userID }).then((jsonRPCResponse) => {
-    if (jsonRPCResponse) {
-      res.json(jsonRPCResponse);
-    } else {
-      res.sendStatus(204);
-    }
-  });
+  // server.process takes an optional second parameter to pass context into the handler method
+  const response = await server.process(jsonRPCRequest, { userID });
+  if (jsonRPCResponse) {
+    res.json(jsonRPCResponse);
+  } else {
+    res.sendStatus(204);
+  }
 });
 
 const getUserID = (req) => {
@@ -92,23 +88,23 @@ const getUserID = (req) => {
 ### Client
 
 ```javascript
-import { JSONRPCClient } from "json-rpc-2.0";
+import { JSONRPCClient } from "json-rpc-utils";
 
 // JSONRPCClient needs to know how to send a JSON-RPC request.
 // Tell it by passing a function to its constructor. The function must take a JSON-RPC request and send it.
-const client = new JSONRPCClient((jsonRPCRequest) =>
-  fetch("http://localhost/json-rpc", {
+const client = new JSONRPCClient(async (jsonRPCRequest) =>
+  const response = await fetch("http://localhost/json-rpc", {
     method: "POST",
     headers: {
       "content-type": "application/json",
     },
     body: JSON.stringify(jsonRPCRequest),
-  }).then((response) => {
+  })
+
+
     if (response.status === 200) {
-      // Use client.receive when you received a JSON-RPC response.
-      return response
-        .json()
-        .then((jsonRPCResponse) => client.receive(jsonRPCResponse));
+      // Return the received a JSON-RPC response for processing by the client
+      return await response.json()
     } else if (jsonRPCRequest.id !== undefined) {
       return Promise.reject(new Error(response.statusText));
     }
@@ -128,64 +124,25 @@ client.notify("log", { message: "Hello, World!" });
 
 #### With authentication
 
-Just like `JSONRPCServer`, you can inject custom params to `JSONRPCClient` too:
+Just like `JSONRPCServer`, you can inject custom context to `JSONRPCClient` as well:
 
 ```javascript
 const client = new JSONRPCClient(
   // If it is a higher-order function, it passes the custom params to the returned function.
-  (jsonRPCRequest) => ({ token }) =>
-    fetch("http://localhost/json-rpc", {
+  (jsonRPCRequest, context) =>
+    return await fetch("http://localhost/json-rpc", {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${token}`, // Use the passed token
+        authorization: `Bearer ${context.token}`, // Use the passed token
       },
       body: JSON.stringify(jsonRPCRequest),
-    }).then((response) => {
-      // ...
-    })
+    }).json()
 );
 
-// Pass the custom params as the third argument.
+// Pass the custom context as the third argument.
 client.request("echo", { text: "Hello, World!" }, { token: "foo's token" });
 client.notify("log", { message: "Hello, World!" }, { token: "foo's token" });
-```
-
-### Bi-directional JSON-RPC
-
-For bi-directional JSON-RPC, use `JSONRPCServerAndClient`.
-
-```javascript
-const webSocket = new WebSocket("ws://localhost");
-
-const serverAndClient = new JSONRPCServerAndClient(
-  new JSONRPCServer(),
-  new JSONRPCClient((request) => {
-    try {
-      webSocket.send(JSON.stringify(request));
-      return Promise.resolve();
-    } catch (error) {
-      return Promise.reject(error);
-    }
-  })
-);
-
-webSocket.onmessage = (event) => {
-  serverAndClient.receiveAndSend(JSON.parse(event.data.toString()));
-};
-
-// On close, make sure to reject all the pending requests to prevent hanging.
-webSocket.onclose = (event) => {
-  serverAndClient.rejectAllPendingRequests(
-    `Connection is closed (${event.reason}).`
-  );
-};
-
-serverAndClient.addMethod("echo", ({ text }) => text);
-
-serverAndClient
-  .request("add", { x: 1, y: 2 })
-  .then((result) => console.log(`1 + 2 = ${result}`));
 ```
 
 ### Error handling
@@ -207,9 +164,8 @@ The `error` object thrown by the client will be a `JSONRPCRemoteError` object if
 
 `JSONRPCRemoteError` are a subclass of the standard `Error` object, so they have a `message` like normal errors, and the message will come from the server side error. The stack of a `JSONRPCRemoteError` object will be the client side local stack. These custom error objects also have the following properties:
 
- - `code`, containing the JSON-RPC error code
- - `data`, which if set on the server will contain auxiliary data for the error. This is supported by the JSON-RPC spec, but isn't set automatically. Users of this library on the server ust use the server's `getErrorData` option to send `data` with errors.
-
+- `code`, containing the JSON-RPC error code
+- `data`, which if set on the server will contain auxiliary data for the error. This is supported by the JSON-RPC spec, but isn't set automatically. Users of this library on the server ust use the server's `getErrorData` option to send `data` with errors.
 
 #### Server side error data
 
@@ -221,9 +177,9 @@ const server = new JSONRPCServer({
   getErrorData: (error) => {
     return {
       customData: true,
-      errorStack: error.stack
-    }
-  }
+      errorStack: error.stack,
+    };
+  },
 });
 
 // ...
@@ -234,105 +190,6 @@ client.request("fail").then(
 );
 ```
 
-### Logging
-
-`JSONRPCServer` logs warnings to the console by default when handlers fail. To configure a different logger, pass a `logger` option to the server constructor:
-
-
-```javascript
-const server = new JSONRPCServer({
-  logger: {
-    info: (message, ...otherObjects) => someLoggingLibrary.info(message),
-    warn: (message, ...otherObjects) => someLoggingLibrary.error(message),
-  }
-});
-```
-
-To disable logging, pass `null` as the logger option:
-
-```javascript
-const server = new JSONRPCServer({ logger: null });
-```
-
-### Advanced APIs
-
-Use the advanced APIs to handle raw JSON-RPC messages.
-
-#### Server
-
-```typescript
-import { JSONRPC, JSONRPCResponse, JSONRPCServer } from "json-rpc-2.0";
-
-const server = new JSONRPCServer();
-
-// Advanced method takes a raw JSON-RPC request and returns a raw JSON-RPC response
-server.addMethodAdvanced(
-  "doSomething",
-  (jsonRPCRequest: JSONRPCRequest): PromiseLike<JSONRPCResponse> => {
-    if (isValid(jsonRPCRequest.params)) {
-      return {
-        jsonrpc: JSONRPC,
-        id: jsonRPCRequest.id,
-        result: "Params are valid",
-      };
-    } else {
-      return {
-        jsonrpc: JSONRPC,
-        id: jsonRPCRequest.id,
-        error: {
-          code: -100,
-          message: "Params are invalid",
-          data: jsonRPCRequest.params,
-        },
-      };
-    }
-  }
-);
-```
-
-#### Client
-
-```typescript
-import {
-  JSONRPC,
-  JSONRPCClient,
-  JSONRPCRequest,
-  JSONRPCResponse,
-} from "json-rpc-2.0";
-
-const send = () => {
-  // ...
-};
-let nextID: number = 0;
-const createID = () => nextID++;
-
-// To avoid conflict ID between basic and advanced method request, inject a custom ID factory function.
-const client = new JSONRPCClient(send, createID);
-
-const jsonRPCRequest: JSONRPCRequest = {
-  jsonrpc: JSONRPC,
-  id: createID(),
-  method: "doSomething",
-  params: {
-    foo: "foo",
-    bar: "bar",
-  },
-};
-
-// Advanced method takes a raw JSON-RPC request and returns a raw JSON-RPC response
-client
-  .requestAdvanced(jsonRPCRequest)
-  .then((jsonRPCResponse: JSONRPCResponse) => {
-    if (jsonRPCResponse.error) {
-      console.log(
-        `Received an error with code ${jsonRPCResponse.error.code} and message ${jsonRPCResponse.error.message}`
-      );
-    } else {
-      doSomethingWithResult(jsonRPCResponse.result);
-    }
-  });
-```
-
 ## Build
 
 `npm run build`
@@ -340,3 +197,7 @@ client
 ## Test
 
 `npm test`
+
+## Credits
+
+This project started as a fork of [`json-rpc-utils`](https://github.com/shogowada/json-rpc-utils) by Shogo Wada! We forked to change how we handle error,s drop some backwards compatability, and improve performance by using `async/await`. Thanks Shogo for all the hard work!

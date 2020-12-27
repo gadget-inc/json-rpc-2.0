@@ -6,43 +6,41 @@ describe("JSONRPCClient and JSONRPCServer", () => {
   let server: JSONRPCServer;
   let client: JSONRPCClient;
 
-  let id: number;
-
   beforeEach(() => {
-    id = 0;
-
     server = new JSONRPCServer();
-    client = new JSONRPCClient(
-      request => {
-        return server.receive(request).then(response => {
-          if (response) {
-            client.receive(response);
-          }
-        });
-      },
-      () => ++id
-    );
-  });
-
-  it("sending a request should resolve the result", () => {
-    beforeEach(() => {
-      server.addMethod("foo", () => "bar");
-
-      return client
-        .request("foo")
-        .then(result => expect(result).to.equal("bar"));
+    client = new JSONRPCClient(async (request) => {
+      const result = await server.process(request);
+      return result!;
     });
   });
 
-  it("sending a notification should send a notification", () => {
-    let received: string;
+  it("sending a request should resolve the result", async () => {
+    server.addMethod("foo", () => "bar");
 
-    beforeEach(() => {
-      server.addMethod("foo", ([text]: any[]) => (received = text));
+    const result = await client.request("foo");
+    expect(result).to.equal("bar");
+  });
 
-      client.notify("foo", ["bar"]);
-
-      expect(received).to.equal("bar");
+  it("sending a request should reject with an error", async () => {
+    server.addMethod("foo", async () => {
+      throw new Error("test error");
     });
+
+    try {
+      await client.request("foo");
+    } catch (error) {
+      expect(error.message).to.equal("test error");
+    }
+  });
+
+  it("sending a notification should send a notification", async () => {
+    let received: string = "<nothing sent yet>";
+
+    server.addMethod("foo", ([text]: any[]) => {
+      received = text;
+    });
+
+    await client.notify("foo", ["bar"]);
+    expect(received).to.equal("bar");
   });
 });

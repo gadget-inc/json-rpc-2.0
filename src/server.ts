@@ -2,21 +2,21 @@ import {
   JSONRPCRequest,
   JSONRPCResponse,
   JSONRPCParams,
-  JSONRPC,
+  JSONRPCProtocol,
   JSONRPCID,
   JSONRPCErrorCode,
   createJSONRPCErrorResponse,
   isJSONRPCRequest,
 } from "./models";
 
-export type SimpleJSONRPCMethod<ServerParams> = (
+export type SimpleJSONRPCMethod<ServerContext> = (
   params?: Partial<JSONRPCParams>,
-  serverParams?: ServerParams
+  ServerContext?: ServerContext
 ) => any;
 
-export type JSONRPCMethod<ServerParams> = (
+export type JSONRPCMethod<ServerContext> = (
   request: JSONRPCRequest,
-  serverParams?: ServerParams
+  ServerContext?: ServerContext
 ) => PromiseLike<JSONRPCResponse | null>;
 
 export type ErrorDataGetter = (error: any) => any;
@@ -25,10 +25,6 @@ export interface Logger {
   info(message: string, ...others: any[]): void;
   warn(message: string, ...others: any[]): void;
 }
-
-type NameToMethodDictionary<ServerParams> = {
-  [name: string]: JSONRPCMethod<ServerParams>;
-};
 
 const DefaultErrorCode = 0;
 
@@ -39,85 +35,79 @@ const createMethodNotFoundResponse = (id: JSONRPCID): JSONRPCResponse =>
     "Method not found"
   );
 
-export class JSONRPCServer<ServerParams = void> {
-  private nameToMethodDictionary: NameToMethodDictionary<ServerParams>;
+export class JSONRPCServer<ServerContext = void> {
+  private nameToMethodDictionary: {
+    [name: string]: JSONRPCMethod<ServerContext>;
+  };
 
   getErrorData?: ErrorDataGetter;
   logger: Logger | null;
 
-  constructor(options?: {
-    getErrorData?: ErrorDataGetter;
-    logger?: Logger | null;
-  }) {
-    this.nameToMethodDictionary = {};
+  constructor(options?: { getErrorData?: ErrorDataGetter }) {
     this.getErrorData = options?.getErrorData;
-    this.logger =
-      typeof options?.logger !== "undefined" ? options?.logger : console;
+    this.nameToMethodDictionary = {};
   }
 
-  addMethod(name: string, method: SimpleJSONRPCMethod<ServerParams>): void {
-    this.addMethodAdvanced(name, this.toJSONRPCMethod(method));
+  /**
+   * Adds a new method to be invoked by remote JSON-RPC clients.
+   */
+  addMethod(name: string, method: SimpleJSONRPCMethod<ServerContext>): void {
+    this.nameToMethodDictionary = {
+      ...this.nameToMethodDictionary,
+      [name]: this.toJSONRPCMethod(method),
+    };
+  }
+
+  /**
+   * Processes an incoming JSON-RPC request.
+   *
+   * Returns an object suitable for JSON serialization with a response if the request merits a response, and returns null if no response is required. Nulls like this happen for JSON-RPC notifications.
+   */
+  async process(
+    request: JSONRPCRequest,
+    ServerContext?: ServerContext
+  ): Promise<JSONRPCResponse | null> {
+    if (!isJSONRPCRequest(request)) {
+      const message = "Received an invalid JSON-RPC request";
+      this.logger?.warn(message, request);
+      throw new Error(message);
+    }
+
+    const method = this.nameToMethodDictionary[request.method];
+    const isNotification = typeof request.id === "undefined";
+
+    if (!method) {
+      return isNotification ? null : createMethodNotFoundResponse(request.id!);
+    }
+
+    const response = await this.callMethod(method, request, ServerContext);
+    return isNotification ? null : response;
   }
 
   private toJSONRPCMethod(
-    method: SimpleJSONRPCMethod<ServerParams>
-  ): JSONRPCMethod<ServerParams> {
+    method: SimpleJSONRPCMethod<ServerContext>
+  ): JSONRPCMethod<ServerContext> {
     return async (
       request: JSONRPCRequest,
-      serverParams: ServerParams
+      ServerContext: ServerContext
     ): Promise<JSONRPCResponse | null> => {
       try {
-        const result = await method(request.params, serverParams);
+        const result = await method(request.params, ServerContext);
         return mapResultToJSONRPCResponse(request.id, result);
       } catch (error) {
-        this.logger?.warn(
-          `JSON-RPC method ${request.method} responded an error`,
-          error
-        );
         return this.mapErrorToJSONRPCResponse(request.id, error);
       }
     };
   }
 
-  addMethodAdvanced(name: string, method: JSONRPCMethod<ServerParams>): void {
-    this.nameToMethodDictionary = {
-      ...this.nameToMethodDictionary,
-      [name]: method,
-    };
-  }
-
-  async receive(
-    request: JSONRPCRequest,
-    serverParams?: ServerParams
-  ): Promise<JSONRPCResponse | null> {
-    const method = this.nameToMethodDictionary[request.method];
-
-    if (!isJSONRPCRequest(request)) {
-      const message = "Received an invalid JSON-RPC request";
-      this.logger?.warn(message, request);
-      throw new Error(message);
-    } else if (method) {
-      const response = await this.callMethod(method, request, serverParams);
-      return mapResponse(request, response);
-    } else if (request.id !== undefined) {
-      return createMethodNotFoundResponse(request.id);
-    } else {
-      return null;
-    }
-  }
-
   private async callMethod(
-    method: JSONRPCMethod<ServerParams>,
+    method: JSONRPCMethod<ServerContext>,
     request: JSONRPCRequest,
-    serverParams?: ServerParams
+    ServerContext?: ServerContext
   ): Promise<JSONRPCResponse | null> {
     try {
-      return await method(request, serverParams);
+      return await method(request, ServerContext);
     } catch (error) {
-      this.logger?.warn(
-        `An unexpected error occurred while executing "${request.method}" JSON-RPC method:`,
-        error
-      );
       return this.mapErrorToJSONRPCResponse(request.id, error);
     }
   }
@@ -142,27 +132,10 @@ const mapResultToJSONRPCResponse = (
 ): JSONRPCResponse | null => {
   if (id !== undefined) {
     return {
-      jsonrpc: JSONRPC,
+      jsonrpc: JSONRPCProtocol,
       id,
       result: result === undefined ? null : result,
     };
-  } else {
-    return null;
-  }
-};
-
-const mapResponse = (
-  request: JSONRPCRequest,
-  response: JSONRPCResponse | null
-): JSONRPCResponse | null => {
-  if (response) {
-    return response;
-  } else if (request.id !== undefined) {
-    return createJSONRPCErrorResponse(
-      request.id,
-      JSONRPCErrorCode.InternalError,
-      "Internal error"
-    );
   } else {
     return null;
   }

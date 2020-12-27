@@ -1,39 +1,33 @@
 import { describe, beforeEach, it } from "mocha";
 import { expect } from "chai";
-import {
-  JSONRPCClient,
-  JSONRPC,
-  JSONRPCResponse,
-  JSONRPCRequest,
-  JSONRPCRemoteError,
-} from ".";
+import { JSONRPCClient, JSONRPCProtocol, JSONRPCRequest } from ".";
 
-interface ClientParams {
+interface ClientContext {
   token: string;
 }
 
 describe("JSONRPCClient", () => {
-  let client: JSONRPCClient<ClientParams>;
+  let client: JSONRPCClient<ClientContext>;
 
   let id: number;
   let lastRequest: JSONRPCRequest | undefined;
-  let lastClientParams: ClientParams | undefined;
-  let resolve: (() => void) | undefined;
-  let reject: ((error: any) => void) | undefined;
+  let lastClientContext: ClientContext | undefined;
+  let resolveClientRequest: ((value?: any) => void) | undefined;
+  let rejectClientRequest: ((error: any) => void) | undefined;
 
   beforeEach(() => {
     id = 0;
     lastRequest = undefined;
-    resolve = undefined;
-    reject = undefined;
+    resolveClientRequest = undefined;
+    rejectClientRequest = undefined;
 
     client = new JSONRPCClient(
-      (request, clientParams) => {
+      (request, ClientContext) => {
         lastRequest = request;
-        lastClientParams = clientParams;
+        lastClientContext = ClientContext;
         return new Promise((givenResolve, givenReject) => {
-          resolve = givenResolve;
-          reject = givenReject;
+          resolveClientRequest = givenResolve;
+          rejectClientRequest = givenReject;
         });
       },
       () => ++id
@@ -41,23 +35,23 @@ describe("JSONRPCClient", () => {
   });
 
   describe("requesting", () => {
-    let result: any;
-    let error: any;
-    let promise: PromiseLike<void>;
+    let requestResult: any;
+    let requestError: any;
+    let requestPromise: PromiseLike<void>;
 
     beforeEach(() => {
-      result = undefined;
-      error = undefined;
+      requestResult = undefined;
+      requestError = undefined;
 
-      promise = client.request("foo", ["bar"]).then(
-        (givenResult) => (result = givenResult),
-        (givenError) => (error = givenError)
+      requestPromise = client.request("foo", ["bar"]).then(
+        (givenResult) => (requestResult = givenResult),
+        (givenError) => (requestError = givenError)
       );
     });
 
     it("should send the request", () => {
       expect(lastRequest).to.deep.equal({
-        jsonrpc: JSONRPC,
+        jsonrpc: JSONRPCProtocol,
         id,
         method: "foo",
         params: ["bar"],
@@ -65,52 +59,40 @@ describe("JSONRPCClient", () => {
     });
 
     describe("succeeded on client side", () => {
-      beforeEach(() => {
-        resolve!();
-      });
-
       describe("and succeeded on server side too", () => {
-        let response: JSONRPCResponse;
-
         beforeEach(() => {
-          response = {
-            jsonrpc: JSONRPC,
+          resolveClientRequest!({
+            jsonrpc: JSONRPCProtocol,
             id,
             result: "foo",
-          };
-
-          client.receive(response);
-
-          return promise;
+          });
+          return requestPromise;
         });
 
         it("should resolve the result", () => {
-          expect(result).to.equal(response.result);
+          expect(requestResult).to.equal("foo");
         });
       });
 
       describe("and succeeded on server side with falsy but defined result", () => {
         beforeEach(() => {
-          client.receive({
-            jsonrpc: JSONRPC,
+          resolveClientRequest!({
+            jsonrpc: JSONRPCProtocol,
             id,
             result: 0,
           });
-
-          return promise;
+          return requestPromise;
         });
 
         it("should resolve the result", () => {
-          expect(result).to.equal(0);
+          expect(requestResult).to.equal(0);
         });
       });
 
       describe("but failed on server side", () => {
-        let response: JSONRPCResponse;
-
         beforeEach(() => {
-          response = {
-            jsonrpc: JSONRPC,
+          resolveClientRequest!({
+            jsonrpc: JSONRPCProtocol,
             id,
             error: {
               code: 0,
@@ -119,141 +101,94 @@ describe("JSONRPCClient", () => {
                 test: true,
               },
             },
-          };
-
-          client.receive(response);
-
-          return promise;
+          });
+          return requestPromise;
         });
 
         it("should reject with the error message", () => {
-          expect(error.message).to.equal(response.error!.message);
-          expect(error.code).to.equal(0);
-          expect(error.data.test).to.equal(true);
+          expect(requestError.message).to.equal(
+            "This is a test. Do not panic."
+          );
+          expect(requestError.code).to.equal(0);
+          expect(requestError.data.test).to.equal(true);
         });
       });
 
       describe("but server responded invalid response", () => {
         describe("like having both result and error", () => {
-          let response: JSONRPCResponse;
-
           beforeEach(() => {
-            response = {
-              jsonrpc: JSONRPC,
+            resolveClientRequest!({
+              jsonrpc: JSONRPCProtocol,
               id,
               result: "foo",
               error: {
                 code: 0,
                 message: "bar",
               },
-            };
-
-            client.receive(response);
-
-            return promise;
+            });
+            return requestPromise;
           });
 
           it("should reject", () => {
-            expect(error).to.not.be.undefined;
+            expect(requestError).to.not.be.undefined;
           });
         });
 
         describe("like not having both result and error", () => {
-          let response: JSONRPCResponse;
-
           beforeEach(() => {
-            response = {
-              jsonrpc: JSONRPC,
+            resolveClientRequest!({
+              jsonrpc: JSONRPCProtocol,
               id,
-            };
-
-            client.receive(response);
-
-            return promise;
+            });
+            return requestPromise;
           });
 
           it("should reject", () => {
-            expect(error).to.not.be.undefined;
-          });
-        });
-      });
-
-      describe("but I reject all pending requests", () => {
-        let message: string;
-
-        beforeEach(() => {
-          message = "Connection is closed.";
-
-          client.rejectAllPendingRequests(message);
-
-          return promise;
-        });
-
-        it("should reject the request", () => {
-          expect(error.message).to.equal(message);
-        });
-
-        describe("receiving a response", () => {
-          beforeEach(() => {
-            client.receive({
-              jsonrpc: JSONRPC,
-              id,
-              result: "foo",
-            });
-
-            return promise;
-          });
-
-          it("should not resolve the promise again", () => {
-            expect(result).to.be.undefined;
+            expect(requestError).to.not.be.undefined;
           });
         });
       });
     });
 
     describe("failed on client side", () => {
-      let expected: Error;
-
       beforeEach(() => {
-        expected = new Error("This is a test. Do not panic.");
-
-        reject!(expected);
-
-        return promise;
+        rejectClientRequest!(new Error("This is a test. Do not panic."));
+        return requestPromise;
       });
 
       it("should reject the promise", () => {
-        expect(error.message).to.equal(expected.message);
+        expect(requestResult).to.be.undefined;
+        expect(requestError.message).to.equal("This is a test. Do not panic.");
       });
     });
 
     describe("failed on client side with no error object", () => {
       beforeEach(() => {
-        reject!(undefined);
-
-        return promise;
+        rejectClientRequest!(undefined);
+        return requestPromise;
       });
 
       it("should reject the promise", () => {
-        expect(error.message).to.equal("Failed to send a request");
+        expect(requestResult).to.be.undefined;
+        expect(requestError).to.be.undefined;
       });
     });
 
     describe("failed on client side with an error object without message", () => {
       beforeEach(() => {
-        reject!({});
-
-        return promise;
+        rejectClientRequest!(new Error());
+        return requestPromise;
       });
 
       it("should reject the promise", () => {
-        expect(error.message).to.equal("Failed to send a request");
+        expect(requestResult).to.be.undefined;
+        expect(requestError).not.to.be.undefined;
       });
     });
   });
 
   describe("requesting with client params", () => {
-    let expected: ClientParams;
+    let expected: ClientContext;
     beforeEach(() => {
       expected = { token: "baz" };
 
@@ -261,7 +196,7 @@ describe("JSONRPCClient", () => {
     });
 
     it("should pass the client params to send function", () => {
-      expect(lastClientParams).to.deep.equal(expected);
+      expect(lastClientContext).to.deep.equal(expected);
     });
   });
 
@@ -272,7 +207,7 @@ describe("JSONRPCClient", () => {
 
     it("should send the notification", () => {
       expect(lastRequest).to.deep.equal({
-        jsonrpc: JSONRPC,
+        jsonrpc: JSONRPCProtocol,
         method: "foo",
         params: ["bar"],
       });
@@ -280,7 +215,7 @@ describe("JSONRPCClient", () => {
   });
 
   describe("notifying with client params", () => {
-    let expected: ClientParams;
+    let expected: ClientContext;
     beforeEach(() => {
       expected = { token: "baz" };
 
@@ -288,7 +223,7 @@ describe("JSONRPCClient", () => {
     });
 
     it("should pass the client params to send function", () => {
-      expect(lastClientParams).to.deep.equal(expected);
+      expect(lastClientContext).to.deep.equal(expected);
     });
   });
 });

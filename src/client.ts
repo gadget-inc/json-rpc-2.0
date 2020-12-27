@@ -1,23 +1,17 @@
 import {
-  createJSONRPCErrorResponse,
-  JSONRPC,
-  JSONRPCErrorCode,
+  JSONRPCProtocol,
   JSONRPCID,
   JSONRPCParams,
   JSONRPCRequest,
   JSONRPCResponse,
 } from "./models";
 
-export type SendRequest<ClientParams> = (
-  payload: any,
-  clientParams?: ClientParams
-) => PromiseLike<void>;
+export type SendRequest<ClientContext> = (
+  payload: JSONRPCRequest,
+  ClientContext?: ClientContext
+) => Promise<JSONRPCResponse>;
 
 export type CreateID = () => JSONRPCID;
-
-type Resolve = (response: JSONRPCResponse) => void;
-
-type IDToDeferredMap = Map<JSONRPCID, Resolve>;
 
 export class JSONRPCRemoteError extends Error {
   constructor(
@@ -30,39 +24,44 @@ export class JSONRPCRemoteError extends Error {
   }
 }
 
-export class JSONRPCClient<ClientParams = void> {
-  private idToResolveMap: IDToDeferredMap;
+export class JSONRPCClient<ClientContext = void> {
   private id: number;
 
   constructor(
-    private _send: SendRequest<ClientParams>,
-    private createID?: CreateID
+    private readonly _send: SendRequest<ClientContext>,
+    private readonly createID?: CreateID
   ) {
-    this.idToResolveMap = new Map();
     this.id = 0;
   }
 
-  private _createID(): JSONRPCID {
-    if (this.createID) {
-      return this.createID();
-    } else {
-      return ++this.id;
-    }
-  }
-
+  /**
+   * Invoke a remote procedure using JSON-RPC and return the result. Throws a `JSONRPCRemoteError` if the transport between the client and server was successful but the server failed to execute. Doesn't wrap or rethrow any errors thrown by the request sender function passed to this `JSONRPCClient` object.
+   *
+   * @param method The name of the method to invoke
+   * @param params The parameters (arguments) to send to the remote method
+   * @param context An optional context object to pass into the send function passed to this JSONRPCClient object
+   * @returns The result of invoking the remote method, the shape of which is defined by the server
+   */
   async request(
     method: string,
     params?: JSONRPCParams,
-    clientParams?: ClientParams
+    context?: ClientContext
   ): Promise<any> {
     const request: JSONRPCRequest = {
-      jsonrpc: JSONRPC,
+      jsonrpc: JSONRPCProtocol,
       method,
       params,
       id: this._createID(),
     };
 
-    const response = await this.requestAdvanced(request, clientParams);
+    const response = await this.send(request, context);
+
+    if (!response) {
+      throw new Error(
+        "JSONRPCClient internal error: No response returned from send function passed to constructor."
+      );
+    }
+
     if (response.result !== undefined && !response.error) {
       return response.result;
     } else if (response.result === undefined && response.error) {
@@ -77,60 +76,40 @@ export class JSONRPCClient<ClientParams = void> {
     }
   }
 
-  async requestAdvanced(
-    request: JSONRPCRequest,
-    clientParams?: ClientParams
-  ): Promise<JSONRPCResponse> {
-    const promise: PromiseLike<JSONRPCResponse> = new Promise((resolve) =>
-      this.idToResolveMap.set(request.id!, resolve)
-    );
-
-    try {
-      await this.send(request, clientParams);
-    } catch (error) {
-      this.receive(
-        createJSONRPCErrorResponse(
-          request.id!,
-          0,
-          (error && error.message) || "Failed to send a request"
-        )
-      );
-    }
-
-    return promise;
-  }
-
+  /**
+   * Fire and forget a remote procedure invocation using JSON-RPC. Doesn't return a result, and doesn't check to see if the remote execution was successful.
+   *
+   * @param method The name of the method to invoke
+   * @param params The parameters (arguments) to send to the remote method
+   * @param context An optional context object to pass into the send function passed to this JSONRPCClient object
+   */
   async notify(
     method: string,
     params?: JSONRPCParams,
-    clientParams?: ClientParams
+    context?: ClientContext
   ): Promise<void> {
     await this.send(
       {
-        jsonrpc: JSONRPC,
+        jsonrpc: JSONRPCProtocol,
         method,
         params,
       },
-      clientParams as ClientParams
+      context as ClientContext
     );
   }
 
-  send(payload: any, clientParams?: ClientParams): PromiseLike<void> {
-    return this._send(payload, clientParams);
+  private send(
+    payload: any,
+    context?: ClientContext
+  ): Promise<JSONRPCResponse> {
+    return this._send(payload, context);
   }
 
-  rejectAllPendingRequests(message: string): void {
-    this.idToResolveMap.forEach((resolve: Resolve, id: string) =>
-      resolve(createJSONRPCErrorResponse(id, 0, message))
-    );
-    this.idToResolveMap.clear();
-  }
-
-  receive(response: JSONRPCResponse): void {
-    const resolve = this.idToResolveMap.get(response.id);
-    if (resolve) {
-      this.idToResolveMap.delete(response.id);
-      resolve(response);
+  private _createID(): JSONRPCID {
+    if (this.createID) {
+      return this.createID();
+    } else {
+      return ++this.id;
     }
   }
 }

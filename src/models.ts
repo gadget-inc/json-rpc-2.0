@@ -1,18 +1,18 @@
-export type JSONRPC = "2.0";
-export const JSONRPC: JSONRPC = "2.0";
+export type JSONRPCProtocol = "2.0";
+export const JSONRPCProtocol: JSONRPCProtocol = "2.0";
 
 export type JSONRPCID = string | number | null;
 export type JSONRPCParams = object | any[];
 
 export interface JSONRPCRequest {
-  jsonrpc: JSONRPC;
+  jsonrpc: JSONRPCProtocol;
   method: string;
   params?: JSONRPCParams;
   id?: JSONRPCID;
 }
 
 export interface JSONRPCResponse {
-  jsonrpc: JSONRPC;
+  jsonrpc: JSONRPCProtocol;
   result?: any;
   error?: JSONRPCError;
   id: JSONRPCID;
@@ -20,7 +20,7 @@ export interface JSONRPCResponse {
 
 export const isJSONRPCRequest = (payload: any): payload is JSONRPCRequest => {
   return (
-    payload.jsonrpc === JSONRPC &&
+    payload.jsonrpc === JSONRPCProtocol &&
     payload.method !== undefined &&
     payload.result === undefined &&
     payload.error === undefined
@@ -29,7 +29,7 @@ export const isJSONRPCRequest = (payload: any): payload is JSONRPCRequest => {
 
 export const isJSONRPCResponse = (payload: any): payload is JSONRPCResponse => {
   return (
-    payload.jsonrpc === JSONRPC &&
+    payload.jsonrpc === JSONRPCProtocol &&
     payload.id !== undefined &&
     (payload.result !== undefined || payload.error !== undefined)
   );
@@ -56,7 +56,7 @@ export const createJSONRPCErrorResponse = (
   data?: any
 ): JSONRPCResponse => {
   const errorResponse: JSONRPCResponse = {
-    jsonrpc: JSONRPC,
+    jsonrpc: JSONRPCProtocol,
     id,
     error: {
       code,
