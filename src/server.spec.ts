@@ -132,6 +132,35 @@ describe("JSONRPCServer", () => {
     });
   });
 
+  describe("with an onError option", () => {
+    let onErrorArgs: any = null;
+
+    beforeEach(() => {
+      onErrorArgs = null;
+      server = new JSONRPCServer({
+        onError: (...args) => {
+          onErrorArgs = args;
+        },
+      });
+    });
+
+    it("should call the onError callback with the error", async () => {
+      const error = new Error("Test rejecting");
+
+      server.addMethod("reject", async () => {
+        throw error;
+      });
+
+      await server.process({
+        jsonrpc: JSONRPCProtocol,
+        id: 0,
+        method: "reject",
+      });
+
+      expect(onErrorArgs[0]).to.equal(error);
+    });
+  });
+
   describe("with a getErrorData option", () => {
     beforeEach(() => {
       server = new JSONRPCServer({

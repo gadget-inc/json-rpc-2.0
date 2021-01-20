@@ -24,6 +24,13 @@ export type ErrorDataGetter = (error: any) => any;
 export interface Logger {
   info(message: string, ...others: any[]): void;
   warn(message: string, ...others: any[]): void;
+  error(message: string, ...others: any[]): void;
+}
+
+export interface ServerOptions {
+  getErrorData?: (error: any) => any;
+  onError?: (error: any) => void;
+  logger?: Logger;
 }
 
 const DefaultErrorCode = 0;
@@ -40,12 +47,11 @@ export class JSONRPCServer<ServerContext = void> {
     [name: string]: JSONRPCMethod<ServerContext>;
   };
 
-  getErrorData?: ErrorDataGetter;
   logger: Logger | null;
 
-  constructor(options?: { getErrorData?: ErrorDataGetter }) {
-    this.getErrorData = options?.getErrorData;
+  constructor(private readonly options: ServerOptions = {}) {
     this.nameToMethodDictionary = {};
+    this.logger = options.logger || null;
   }
 
   /**
@@ -95,7 +101,7 @@ export class JSONRPCServer<ServerContext = void> {
         const result = await method(request.params, ServerContext);
         return mapResultToJSONRPCResponse(request.id, result);
       } catch (error) {
-        return this.mapErrorToJSONRPCResponse(request.id, error);
+        return this.handleErrorAndCreateResponse(request.id, error);
       }
     };
   }
@@ -108,17 +114,19 @@ export class JSONRPCServer<ServerContext = void> {
     try {
       return await method(request, ServerContext);
     } catch (error) {
-      return this.mapErrorToJSONRPCResponse(request.id, error);
+      return this.handleErrorAndCreateResponse(request.id, error);
     }
   }
 
-  private mapErrorToJSONRPCResponse(id: JSONRPCID | undefined, error: any) {
+  private handleErrorAndCreateResponse(id: JSONRPCID | undefined, error: any) {
+    this.logger?.error("Error occurred handling json-rpc request", error);
+    this.options.onError && this.options.onError(error);
     if (id !== undefined) {
       return createJSONRPCErrorResponse(
         id,
         DefaultErrorCode,
         (error && error.message) || "An unexpected error occurred",
-        this.getErrorData ? this.getErrorData(error) : undefined
+        this.options.getErrorData ? this.options.getErrorData(error) : undefined
       );
     } else {
       return null;
