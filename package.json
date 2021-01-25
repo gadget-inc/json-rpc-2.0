@@ -1,6 +1,6 @@
 {
   "name": "json-rpc-utils",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "JSON-RPC 2.0 client and server utilities",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
