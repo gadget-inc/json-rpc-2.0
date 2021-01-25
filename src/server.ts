@@ -29,7 +29,7 @@ export interface Logger {
 
 export interface ServerOptions {
   getErrorData?: (error: any) => any;
-  onError?: (error: any) => void;
+  onError?: (error: any, id: JSONRPCID | undefined) => void;
   logger?: Logger;
 }
 
@@ -119,8 +119,7 @@ export class JSONRPCServer<ServerContext = void> {
   }
 
   private handleErrorAndCreateResponse(id: JSONRPCID | undefined, error: any) {
-    this.logger?.error("Error occurred handling json-rpc request", error);
-    this.options.onError && this.options.onError(error);
+    this.options.onError && this.options.onError(error, id);
     if (id !== undefined) {
       return createJSONRPCErrorResponse(
         id,
